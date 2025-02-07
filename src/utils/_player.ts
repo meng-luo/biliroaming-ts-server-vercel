@@ -76,6 +76,8 @@ export const readCache = async (
   info: { uid: number; vip_type: 0 | 1 | 2 }
 ) => {
   if (!env.db_local_enabled && !env.db_bitio_enabled) return;
+  if (!cid) cid = 0;
+  if (!ep_id) ep_id = 0;
   const log = loggerc.child({
     module: "读取缓存",
   });
@@ -88,10 +90,14 @@ export const readCache = async (
     c_vip = await db.get({ key: `c-vip-${cid}-${ep_id}` });
   } else if (env.db_bitio_enabled) {
     log_data.cache_way = "db_pg";
+    let queryWhere = "";
+    if (cid && !ep_id) queryWhere = `cid = ${cid}`;
+    else if (ep_id && !cid) queryWhere = `ep = ${ep_id}`;
+    else queryWhere = `(cid = ${cid || 0} OR ep = ${ep_id || 0})`;
     c_vip = await env.db_bitio_pool
       .query(
-        "SELECT (data) FROM cache WHERE exp >= $1 AND need_vip = 1 AND (cid = $2 OR ep = $3)",
-        [Math.round(Number(new Date()) / 1000), cid, ep_id]
+        `SELECT (data) FROM cache WHERE exp >= $1 AND need_vip = 1 AND ${queryWhere}`,
+        [Math.round(Number(new Date()) / 1000)]
       )
       .then((res) => res.rows[0]?.data || undefined);
   }
@@ -150,13 +156,13 @@ export const addNewCache = async (
     log_data.cache_way = "db_local";
     if (need_vip)
       db.set(
-        `c-vip-${Number(data.cid)}-${Number(data.ep_id)}`,
+        `c-vip-${Number(data.cid) || 0}-${Number(data.ep_id) || 0}`,
         res_data_str,
         deadline
       );
     else
       db.set(
-        `c-${Number(data.cid)}-${Number(data.ep_id)}`,
+        `c-${Number(data.cid) || 0}-${Number(data.ep_id) || 0}`,
         res_data_str,
         deadline
       );
@@ -164,7 +170,13 @@ export const addNewCache = async (
     log_data.cache_way = "db_pg";
     await env.db_bitio_pool.query(
       "INSERT INTO cache (need_vip,exp,cid,ep,data) VALUES ($1,$2,$3,$4,$5)",
-      [need_vip, deadline, Number(data.cid), Number(data.ep_id), res_data]
+      [
+        need_vip,
+        deadline,
+        Number(data.cid) || 0,
+        Number(data.ep_id) || 0,
+        res_data,
+      ]
     );
   }
   log.info({});
